@@ -36,6 +36,7 @@
 #include "app/IRController/IRController.h"
 #include "app/activity/activity.h"
 #include "app/calendar/calendar.h"
+#include "app/FindPhone/FindPhone.h"
 #include "app/NetTools/NetTools.h"
 #include "app/ping/ping_app.h"
 #include "app/wireless/wireless_app.h"
@@ -69,6 +70,7 @@ void setup() {
     activity_app_setup();
     calendar_app_setup();
     IRController_setup();
+	FindPhone_setup();
     NetTools_setup();
     ping_app_setup();
     wireless_app_setup();
