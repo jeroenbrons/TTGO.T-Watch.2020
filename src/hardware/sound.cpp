@@ -206,6 +206,10 @@ void sound_set_enabled( bool enabled ) {
     TTGOClass *ttgo = TTGOClass::getWatch();
 
     if ( enabled ) {
+#if     defined(LILYGO_WATCH_2020_V1)
+        ttgo->power->setLDO3Mode( AXP202_LDO3_MODE_DCIN );
+        ttgo->power->setPowerOutPut( AXP202_LDO3, AXP202_ON );
+#endif
         ttgo->enableAudio();
     }
     else {
@@ -213,6 +217,10 @@ void sound_set_enabled( bool enabled ) {
             if ( mp3->isRunning() ) mp3->stop();
             if ( wav->isRunning() ) wav->stop();
         }
+#if     defined(LILYGO_WATCH_2020_V1)
+        ttgo->power->setLDO3Mode( AXP202_LDO3_MODE_DCIN );
+        ttgo->power->setPowerOutPut( AXP202_LDO3, AXP202_OFF );
+#endif
         ttgo->disableAudio();
     }
 }
@@ -261,7 +269,7 @@ void sound_speak( const char *str ) {
     }
 
     if ( sound_config.enable ) {
-        log_i("Speaking text", str);
+        log_i("Speaking text: %s", str);
         is_speaking = true;
         sam->Say(out, str);
         is_speaking = false;
