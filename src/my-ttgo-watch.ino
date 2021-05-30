@@ -33,14 +33,17 @@
 #include "app/weather/weather.h"
 #include "app/stopwatch/stopwatch_app.h"
 #include "app/alarm_clock/alarm_clock.h"
-#include "app/IRController/IRController.h"
 #include "app/activity/activity.h"
 #include "app/calendar/calendar.h"
+#include "app/tiltmouse/tiltmouse_app.h"
+#include "app/IRController/IRController.h"
 #include "app/FindPhone/FindPhone.h"
 #include "app/NetTools/NetTools.h"
 #include "app/ping/ping_app.h"
 #include "app/wireless/wireless_app.h"
 #include "app/wifimon/wifimon_app.h"
+#include "app/games/ttt/ttt_game.h"
+//#include "app/games/pong/pong_game.h"
 
 void setup() {
     /**
@@ -69,12 +72,15 @@ void setup() {
     alarm_clock_setup();
     activity_app_setup();
     calendar_app_setup();
+    tiltmouse_app_setup();
     IRController_setup();
 	FindPhone_setup();
     NetTools_setup();
     ping_app_setup();
     wireless_app_setup();
     wifimon_app_setup();
+    tic_tac_toe_game_setup();
+    //pong_game_setup();
     /**
      * post hardware setup
      * 
