@@ -35,6 +35,7 @@
 #include "app/alarm_clock/alarm_clock.h"
 #include "app/activity/activity.h"
 #include "app/calendar/calendar.h"
+#include "app/calc/calc_app.h"
 #include "app/tiltmouse/tiltmouse_app.h"
 #include "app/IRController/IRController.h"
 #include "app/FindPhone/FindPhone.h"
@@ -72,6 +73,7 @@ void setup() {
     alarm_clock_setup();
     activity_app_setup();
     calendar_app_setup();
+    calc_app_setup();
     tiltmouse_app_setup();
     IRController_setup();
 	FindPhone_setup();
