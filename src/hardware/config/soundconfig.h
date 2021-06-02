@@ -35,6 +35,12 @@
         uint8_t volume = 50;    /** @brief sound value from 0..100 */
         bool enable = true;     /** @brief sound on/off */
 
+        bool silence_timeframe = false;
+        int silence_start_hour = 0;
+        int silence_start_minute = 0;
+        int silence_end_hour = 0;
+        int silence_end_minute = 0;
+
         protected:
         ////////////// Available for overloading: //////////////
         virtual bool onLoad(JsonDocument& document);

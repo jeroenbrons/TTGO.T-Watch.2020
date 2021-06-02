@@ -27,6 +27,12 @@ sound_config_t::sound_config_t() : BaseJsonConfig(SOUND_JSON_CONFIG_FILE) {
 bool sound_config_t::onSave(JsonDocument& doc) {
     doc["enable"] = enable;
     doc["volume"] = volume;
+    
+    doc["silence_timeframe"] = silence_timeframe;
+    doc["silence_start_hour"] = silence_start_hour;
+    doc["silence_start_minute"] = silence_start_minute;
+    doc["silence_end_hour"] = silence_end_hour;
+    doc["silence_end_minute"] = silence_end_minute;
 
     return true;
 }
@@ -34,6 +40,12 @@ bool sound_config_t::onSave(JsonDocument& doc) {
 bool sound_config_t::onLoad(JsonDocument& doc) {
     enable = doc["enable"] | false;
     volume = doc["volume"] | 100;
+    
+    silence_timeframe = doc["silence_timeframe"] | false;
+    silence_start_hour = doc["silence_start_hour"] | 0;
+    silence_start_minute = doc["silence_start_minute"] | 0;
+    silence_end_hour = doc["silence_end_hour"] | 0;
+    silence_end_minute = doc["silence_end_minute"] | 0;
 
     return true;
 }
@@ -41,6 +53,12 @@ bool sound_config_t::onLoad(JsonDocument& doc) {
 bool sound_config_t::onDefault( void ) {
     enable = false;
     volume = 100;
+    
+    silence_timeframe = false;
+    silence_start_hour = 0;
+    silence_start_minute = 0;
+    silence_end_hour = 0;
+    silence_end_minute = 0;
 
     return true;
 }
