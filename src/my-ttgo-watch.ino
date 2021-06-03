@@ -44,7 +44,7 @@
 #include "app/wireless/wireless_app.h"
 #include "app/wifimon/wifimon_app.h"
 #include "app/games/ttt/ttt_game.h"
-//#include "app/games/pong/pong_game.h"
+#include "app/games/pong/pong_game.h"
 
 void setup() {
     /**
@@ -82,7 +82,7 @@ void setup() {
     wireless_app_setup();
     wifimon_app_setup();
     tic_tac_toe_game_setup();
-    //pong_game_setup();
+    pong_game_setup();
     /**
      * post hardware setup
      * 
