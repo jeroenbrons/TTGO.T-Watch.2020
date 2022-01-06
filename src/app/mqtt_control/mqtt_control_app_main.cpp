@@ -134,7 +134,7 @@ void mqtt_control_label_setup(size_t index, mqtt_control_item_t *mqtt_control_it
 
     mqtt_control_item->gui_object = lv_label_create(mqtt_control_page, NULL);
 	lv_obj_add_style(mqtt_control_item->gui_object, LV_OBJ_PART_MAIN, &mqtt_control_label_style);
-	lv_label_set_long_mode(mqtt_control_item->gui_object, LV_LABEL_LONG_SROLL_CIRC);
+	lv_label_set_long_mode(mqtt_control_item->gui_object, LV_LABEL_LONG_SROLL);
 	lv_label_set_text(mqtt_control_item->gui_object, "");
 	lv_obj_set_pos(mqtt_control_item->gui_object, 110, 30 * index);
 	lv_obj_set_size(mqtt_control_item->gui_object, 100, 20);

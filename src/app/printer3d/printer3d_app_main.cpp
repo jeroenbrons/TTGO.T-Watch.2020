@@ -101,7 +101,7 @@ void printer3d_app_main_setup( uint32_t tile_num ) {
     lv_style_set_text_font(&printer3d_heading_big_style, LV_STATE_DEFAULT, &Ubuntu_16px);
     lv_obj_add_style( printer3d_heading_name, LV_OBJ_PART_MAIN, &printer3d_heading_big_style );
     lv_label_set_text( printer3d_heading_name, "3D Printer");
-    lv_label_set_long_mode( printer3d_heading_name, LV_LABEL_LONG_SROLL_CIRC );
+    lv_label_set_long_mode( printer3d_heading_name, LV_LABEL_LONG_SROLL );
     lv_obj_set_width( printer3d_heading_name, lv_disp_get_hor_res( NULL ) - 20 );
     lv_obj_align( printer3d_heading_name, printer3d_app_main_tile, LV_ALIGN_IN_TOP_LEFT, 10, 10 );
     
@@ -110,7 +110,7 @@ void printer3d_app_main_setup( uint32_t tile_num ) {
     lv_style_set_text_font(&printer3d_heading_small_style, LV_STATE_DEFAULT, &Ubuntu_12px);
     lv_obj_add_style( printer3d_heading_version, LV_OBJ_PART_MAIN, &printer3d_heading_small_style );
     lv_label_set_text( printer3d_heading_version, "");
-    lv_label_set_long_mode( printer3d_heading_version, LV_LABEL_LONG_SROLL_CIRC );
+    lv_label_set_long_mode( printer3d_heading_version, LV_LABEL_LONG_SROLL );
     lv_obj_set_width( printer3d_heading_version, lv_disp_get_hor_res( NULL ) - 20 );
     lv_obj_align( printer3d_heading_version, printer3d_heading_name, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 0 );
 
@@ -132,14 +132,15 @@ void printer3d_app_main_setup( uint32_t tile_num ) {
     lv_obj_add_style( printer3d_progress_percent, LV_OBJ_PART_MAIN, &printer3d_heading_big_style );
 	lv_label_set_align(printer3d_progress_percent, LV_LABEL_ALIGN_CENTER);
     lv_label_set_text( printer3d_progress_percent, "--%");
-    lv_obj_set_width( printer3d_progress_percent, 20 );
+    lv_label_set_long_mode( printer3d_progress_percent, LV_LABEL_LONG_CROP );
+    lv_obj_set_width( printer3d_progress_percent, 30 );
     lv_obj_align( printer3d_progress_percent, printer3d_app_main_tile, LV_ALIGN_IN_TOP_MID, 0, 80 );
 
     printer3d_progress_state = lv_label_create( printer3d_app_main_tile, NULL);
     lv_obj_add_style( printer3d_progress_state, LV_OBJ_PART_MAIN, &printer3d_heading_big_style );
 	lv_label_set_align(printer3d_progress_state, LV_LABEL_ALIGN_CENTER);
     lv_label_set_text( printer3d_progress_state, "LOADING");
-    lv_label_set_long_mode( printer3d_progress_state, LV_LABEL_LONG_SROLL_CIRC );
+    lv_label_set_long_mode( printer3d_progress_state, LV_LABEL_LONG_SROLL );
     lv_obj_set_width( printer3d_progress_state, lv_disp_get_hor_res( NULL ) - 20 );
     lv_obj_align( printer3d_progress_state, printer3d_app_main_tile, LV_ALIGN_IN_TOP_MID, 0, 130 );
 
@@ -148,6 +149,7 @@ void printer3d_app_main_setup( uint32_t tile_num ) {
     lv_obj_add_style( printer3d_extruder_label, LV_OBJ_PART_MAIN, &printer3d_heading_small_style );
 	lv_label_set_align(printer3d_extruder_label, LV_LABEL_ALIGN_LEFT);
     lv_label_set_text( printer3d_extruder_label, "Extruder");
+    lv_label_set_long_mode( printer3d_extruder_label, LV_LABEL_LONG_CROP );
     lv_obj_set_width( printer3d_extruder_label, 100 );
     lv_obj_align( printer3d_extruder_label, printer3d_app_main_tile, LV_ALIGN_IN_BOTTOM_LEFT, 10, -50 );
     
@@ -155,6 +157,7 @@ void printer3d_app_main_setup( uint32_t tile_num ) {
     lv_obj_add_style( printer3d_extruder_temp, LV_OBJ_PART_MAIN, &printer3d_heading_big_style );
 	lv_label_set_align(printer3d_extruder_temp, LV_LABEL_ALIGN_LEFT);
     lv_label_set_text( printer3d_extruder_temp, "--°C");
+    lv_label_set_long_mode( printer3d_extruder_temp, LV_LABEL_LONG_CROP );
     lv_obj_set_width( printer3d_extruder_temp, 100 );
     lv_obj_align( printer3d_extruder_temp, printer3d_app_main_tile, LV_ALIGN_IN_BOTTOM_LEFT, 10, -65 );
     
@@ -162,13 +165,15 @@ void printer3d_app_main_setup( uint32_t tile_num ) {
     lv_obj_add_style( printer3d_printbed_label, LV_OBJ_PART_MAIN, &printer3d_heading_small_style );
 	lv_label_set_align(printer3d_printbed_label, LV_LABEL_ALIGN_RIGHT);
     lv_label_set_text( printer3d_printbed_label, "Printbed");
+    lv_label_set_long_mode( printer3d_printbed_label, LV_LABEL_LONG_CROP );
     lv_obj_set_width( printer3d_printbed_label, 100 );
     lv_obj_align( printer3d_printbed_label, printer3d_app_main_tile, LV_ALIGN_IN_BOTTOM_RIGHT, -10, -50 );
     
     printer3d_printbed_temp = lv_label_create( printer3d_app_main_tile, NULL);
     lv_obj_add_style( printer3d_printbed_temp, LV_OBJ_PART_MAIN, &printer3d_heading_big_style );
 	lv_label_set_align(printer3d_printbed_temp, LV_LABEL_ALIGN_RIGHT);
-    lv_label_set_text( printer3d_printbed_temp, "  --°C");
+    lv_label_set_text( printer3d_printbed_temp, "--°C");
+    lv_label_set_long_mode( printer3d_printbed_temp, LV_LABEL_LONG_CROP );
     lv_obj_set_width( printer3d_printbed_temp, 100 );
     lv_obj_align( printer3d_printbed_temp, printer3d_app_main_tile, LV_ALIGN_IN_BOTTOM_RIGHT, -10, -65 );
 
@@ -278,7 +283,7 @@ bool printer3d_refresh() {
         char machineType[32], machineVersion[16];
 
         char* generalInfoType = strstr(generalInfo, "Machine Type:");
-        if ( generalInfoType != NULL && strlen(generalInfoType) > 0 && sscanf( generalInfoType, "Machine Type: %s", machineType ) > 0 ) {
+        if ( generalInfoType != NULL && strlen(generalInfoType) > 0 && sscanf( generalInfoType, "Machine Type: %[a-zA-Z0-9- ]", machineType ) > 0 ) {
             lv_label_set_text( printer3d_heading_name, machineType);
         }
 
@@ -293,12 +298,12 @@ bool printer3d_refresh() {
         char stateMachine[16], stateMove[16];
 
         char* stateInfoMachine = strstr(stateInfo, "MachineStatus:");
-        if ( stateInfoMachine != NULL && strlen(stateInfoMachine) > 0 && sscanf( stateInfoMachine, "MachineStatus: %s", stateMachine ) > 0 ) {
+        if ( stateInfoMachine != NULL && strlen(stateInfoMachine) > 0 && sscanf( stateInfoMachine, "MachineStatus: %[a-zA-Z]", stateMachine ) > 0 ) {
             lv_label_set_text( printer3d_progress_state, stateMachine);
         }
 
         char* stateInfoMove = strstr(stateInfo, "MoveMode:");
-        if ( stateInfoMove != NULL && strlen(stateInfoMove) > 0 && sscanf( stateInfoMove, "MoveMode: %s", stateMove ) > 0 ) {
+        if ( stateInfoMove != NULL && strlen(stateInfoMove) > 0 && sscanf( stateInfoMove, "MoveMode: %[a-zA-Z]", stateMove ) > 0 ) {
             // currently unused
         }
     }

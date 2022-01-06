@@ -292,6 +292,12 @@ A simple Pong game using the Accelerometer of the T-Watch 2020. It also has some
 
 ![screenshot](images/pong.png)
 
+## Printer 3D
+
+An app to view the state and progress of my 3D Printer. Uses G-Codes over WiFi to communicate.
+
+![screenshot](images/printer3d.png)
+
 ## TiltMouse
 
 A Bluetooth mouse using the Accelerometer of the T-Watch 2020, that you can connect to your PC or
