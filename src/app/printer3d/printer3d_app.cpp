@@ -87,7 +87,7 @@ void printer3d_app_setup( void ) {
     // remember, an app icon must have an size of 64x64 pixel with an alpha channel
     // use https://lvgl.io/tools/imageconverter to convert your images and set "true color with alpha" to get fancy images
     // the resulting c-file can put in /app/printer3ds/images/ and declare it like LV_IMG_DECLARE( your_icon );
-    printer3d_app = app_register( "3d printer", &printer3d_app_64px, enter_printer3d_app_event_cb );
+    printer3d_app = app_register( "3D Printer", &printer3d_app_64px, enter_printer3d_app_event_cb );
     app_hide_indicator( printer3d_app );
 
 #ifdef PRINTER3D_WIDGET
@@ -96,7 +96,7 @@ void printer3d_app_setup( void ) {
     // remember, an widget icon must have an max size of 64x64 pixel
     // use https://lvgl.io/tools/imageconverter to convert your images and set "true color with alpha" to get fancy images
     // the resulting c-file can put in /app/printer3ds/images/ and declare it like LV_IMG_DECLARE( your_icon );
-    printer3d_widget = widget_register( "3d printer", &printer3d_app_64px, enter_printer3d_widget_event_cb );
+    printer3d_widget = widget_register( "3D Printer", &printer3d_app_64px, enter_printer3d_widget_event_cb );
     widget_set_indicator( printer3d_widget, ICON_INDICATOR_UPDATE );
 #endif // PRINTER3D_WIDGET
 

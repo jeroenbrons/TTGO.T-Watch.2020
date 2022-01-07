@@ -31,6 +31,23 @@
         char url[64] = "";
     } weather_station_config_t;
 
+    typedef struct {
+        volatile bool changed = false;
+        volatile bool success = false;
+        volatile float air_temp_high;
+        volatile float air_temp_low;
+        volatile float air_humidity;
+        volatile float shed_temp;
+        volatile float ground_temp_bed;
+        volatile float ground_temp_house;
+        volatile float ground_soil_bed;
+        volatile float ground_soil_house;
+        volatile float wind;
+        volatile float rain;
+        volatile float tank1;
+        volatile float tank2;
+    } weather_station_result_t;
+
     void weather_station_app_setup( void );
     uint32_t weather_station_app_get_app_setup_tile_num( void );
     uint32_t weather_station_app_get_app_main_tile_num( void );

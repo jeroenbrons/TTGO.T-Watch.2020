@@ -20,8 +20,6 @@
  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "config.h"
-#include "HTTPClient.h"
-#include <TTGO.h>
 
 #include "weather_station_app.h"
 #include "weather_station_app_main.h"
@@ -36,7 +34,20 @@
 #include "hardware/wifictl.h"
 #include "utils/json_psram_allocator.h"
 
-bool weather_station_state = false;
+#ifdef NATIVE_64BIT
+    #include "utils/logging.h"
+    #include "utils/millis.h"
+    #include <string>
+
+    using namespace std;
+    #define String string
+#else
+    #include <Arduino.h>
+    #include "HTTPClient.h"
+    #include "esp_task_wdt.h"
+#endif
+
+volatile bool weather_station_state = false;
 static uint64_t nextmillis = 0;
 
 lv_obj_t *weather_station_app_main_tile = NULL;
@@ -68,8 +79,14 @@ static void exit_weather_station_app_main_event_cb( lv_obj_t * obj, lv_event_t e
 static void enter_weather_station_app_setup_event_cb( lv_obj_t * obj, lv_event_t event );
 static void refresh_weather_station_event_cb( lv_obj_t * obj, lv_event_t event );
 static bool weather_station_main_wifictl_event_cb( EventBits_t event, void *arg );
+
+#ifndef NATIVE_64BIT
+    TaskHandle_t weather_station_refresh_handle;
+#endif
+weather_station_result_t weather_station_refresh_result;
+
 void weather_station_app_task( lv_task_t * task );
-void weather_station_refresh();
+void weather_station_refresh(void *parameter);
 
 void weather_station_app_main_setup( uint32_t tile_num ) {
 
@@ -271,7 +288,12 @@ static void exit_weather_station_app_main_event_cb( lv_obj_t * obj, lv_event_t e
 
 static void refresh_weather_station_event_cb( lv_obj_t * obj, lv_event_t event ) {
     switch( event ) {
-        case( LV_EVENT_CLICKED ):       weather_station_refresh();
+        case( LV_EVENT_CLICKED ):       weather_station_app_set_indicator( ICON_INDICATOR_UPDATE );
+                                        #ifdef NATIVE_64BIT
+                                            weather_station_refresh( NULL );
+                                        #else
+                                            xTaskCreatePinnedToCore(weather_station_refresh, "weather_station_refresh", 3000, NULL, 0, &weather_station_refresh_handle, 1);
+                                        #endif
                                         break;
     }
 }
@@ -282,14 +304,74 @@ void weather_station_app_task( lv_task_t * task ) {
     if ( nextmillis < millis() ) {
         nextmillis = millis() + 300000L;
 
-        weather_station_refresh();
+        weather_station_app_set_indicator( ICON_INDICATOR_UPDATE );
+        #ifdef NATIVE_64BIT
+            weather_station_refresh( NULL );
+        #else
+            xTaskCreatePinnedToCore(weather_station_refresh, "weather_station_refresh", 2500, NULL, 0, &weather_station_refresh_handle, 1);
+        #endif
+    }
+
+    if (weather_station_refresh_result.changed) {
+        weather_station_refresh_result.changed = false;
+        char val[32];
+
+        snprintf( val, sizeof(val), "%.1f °C", weather_station_refresh_result.air_temp_high );
+        lv_label_set_text(weather_station_temp_high_label, val);
+
+        snprintf( val, sizeof(val), "%.1f °C", weather_station_refresh_result.air_temp_low );
+        lv_label_set_text(weather_station_temp_low_label, val);
+        
+        snprintf( val, sizeof(val), "%.1f %%", weather_station_refresh_result.air_humidity );
+        lv_label_set_text(weather_station_humidity_label, val);
+        
+        snprintf( val, sizeof(val), "%.1f °C", weather_station_refresh_result.shed_temp );
+        lv_label_set_text(weather_station_temp_house_label, val);
+        
+        snprintf( val, sizeof(val), "%.1f °C", weather_station_refresh_result.ground_temp_bed );
+        lv_label_set_text(weather_station_garden_bed_temp_label, val);
+        
+        snprintf( val, sizeof(val), "%.1f °C", weather_station_refresh_result.ground_temp_house );
+        lv_label_set_text(weather_station_garden_house_temp_label, val);
+        
+        snprintf( val, sizeof(val), "%.1f %%", weather_station_refresh_result.ground_soil_bed );
+        lv_label_set_text(weather_station_garden_bed_soil_label, val);
+        
+        snprintf( val, sizeof(val), "%.1f %%", weather_station_refresh_result.ground_soil_house );
+        lv_label_set_text(weather_station_garden_house_soil_label, val);
+
+        snprintf( val, sizeof(val), "%.1f m/s", weather_station_refresh_result.wind );
+        lv_label_set_text(weather_station_wind_label, val);
+        
+        snprintf( val, sizeof(val), "%.1f mm/3h", weather_station_refresh_result.rain );
+        lv_label_set_text(weather_station_rain_label, val);
+
+        snprintf( val, sizeof(val), "%.1f %%", weather_station_refresh_result.tank1 );
+        lv_label_set_text(weather_station_tank1_label, val);
+        
+        snprintf( val, sizeof(val), "%.1f %%", weather_station_refresh_result.tank2 );
+        lv_label_set_text(weather_station_tank2_label, val);
+
+        if (weather_station_refresh_result.success) {
+            weather_station_app_set_indicator( ICON_INDICATOR_OK );
+        } else {
+            weather_station_app_set_indicator( ICON_INDICATOR_FAIL );
+        }
     }
 }
 
-void weather_station_refresh() {
+void weather_station_refresh(void *parameter) {
     if (!weather_station_state) return;
     
     weather_station_config_t *weather_station_config = weather_station_get_config();
+    if (!strlen(weather_station_config->url)) {
+        weather_station_refresh_result.changed = true;
+        weather_station_refresh_result.success = false;
+        #ifndef NATIVE_64BIT
+            vTaskDelete(NULL);
+        #endif
+        return;
+    }
 
     HTTPClient http_client;
     WiFiClientSecure *sslclient = NULL;
@@ -315,51 +397,42 @@ void weather_station_refresh() {
         if (error) {
             log_e("weather station deserializeJson() failed: %s", error.c_str() );
             http_client.end();
+            
+            weather_station_refresh_result.changed = true;
+            weather_station_refresh_result.success = false;
+            #ifndef NATIVE_64BIT
+                vTaskDelete(NULL);
+            #endif
             return;
         }
 
-        char val[32];
-
-        snprintf( val, sizeof(val), "%.1f °C", doc["Temp1"].as<float>() );
-        lv_label_set_text(weather_station_temp_high_label, val);
-
-        snprintf( val, sizeof(val), "%.1f °C", doc["Temp2"].as<float>() );
-        lv_label_set_text(weather_station_temp_low_label, val);
-        
-        snprintf( val, sizeof(val), "%.1f °C", doc["ShedTemp"].as<float>() );
-        lv_label_set_text(weather_station_temp_house_label, val);
-        
-        snprintf( val, sizeof(val), "%.1f %%", doc["Humidity"].as<float>() );
-        lv_label_set_text(weather_station_humidity_label, val);
-        
-        snprintf( val, sizeof(val), "%.1f °C", doc["GroundTemp"].as<float>() );
-        lv_label_set_text(weather_station_garden_bed_temp_label, val);
-        
-        snprintf( val, sizeof(val), "%.1f °C", doc["HouseTemp"].as<float>() );
-        lv_label_set_text(weather_station_garden_house_temp_label, val);
-        
-        snprintf( val, sizeof(val), "%.1f %%", doc["SoilMoisture"].as<float>() );
-        lv_label_set_text(weather_station_garden_bed_soil_label, val);
-        
-        snprintf( val, sizeof(val), "%.1f %%", doc["SoilMoisture2"].as<float>() );
-        lv_label_set_text(weather_station_garden_house_soil_label, val);
-
-        snprintf( val, sizeof(val), "%.1f m/s", doc["WindSpeed"].as<float>() );
-        lv_label_set_text(weather_station_wind_label, val);
-        
-        snprintf( val, sizeof(val), "%.1f mm/3h", doc["Precipitation"].as<float>() );
-        lv_label_set_text(weather_station_rain_label, val);
-
-        snprintf( val, sizeof(val), "%.1f %%", doc["Tank"].as<float>() );
-        lv_label_set_text(weather_station_tank1_label, val);
-        
-        snprintf( val, sizeof(val), "%.1f %%", doc["Tank2"].as<float>() );
-        lv_label_set_text(weather_station_tank2_label, val);
+        weather_station_refresh_result.air_temp_high = doc["Temp1"].as<float>();
+        weather_station_refresh_result.air_temp_low = doc["Temp2"].as<float>();
+        weather_station_refresh_result.air_humidity = doc["Humidity"].as<float>();
+        weather_station_refresh_result.shed_temp = doc["ShedTemp"].as<float>();
+        weather_station_refresh_result.ground_temp_bed = doc["GroundTemp"].as<float>();
+        weather_station_refresh_result.ground_temp_house = doc["HouseTemp"].as<float>();
+        weather_station_refresh_result.ground_soil_bed = doc["SoilMoisture"].as<float>();
+        weather_station_refresh_result.ground_soil_house = doc["SoilMoisture2"].as<float>();
+        weather_station_refresh_result.wind = doc["WindSpeed"].as<float>();
+        weather_station_refresh_result.rain = doc["Precipitation"].as<float>();
+        weather_station_refresh_result.tank1 = doc["Tank"].as<float>();
+        weather_station_refresh_result.tank2 = doc["Tank2"].as<float>();
 
         doc.clear();
+        
+        weather_station_refresh_result.changed = true;
+        weather_station_refresh_result.success = true;
     } else {
         log_e("weather station got http status code %d", httpcode);
+
+        weather_station_refresh_result.changed = true;
+        weather_station_refresh_result.success = false;
     }
 
     http_client.end();
+
+    #ifndef NATIVE_64BIT
+        vTaskDelete(NULL);
+    #endif
 }

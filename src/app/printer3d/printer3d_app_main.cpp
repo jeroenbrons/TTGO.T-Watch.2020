@@ -44,9 +44,10 @@
 #else
     #include <Arduino.h>
     #include "HTTPClient.h"
+    #include "esp_task_wdt.h"
 #endif
 
-bool printer3d_state = false;
+volatile bool printer3d_state = false;
 volatile bool printer3d_open_state = false;
 static uint64_t nextmillis = 0;
 
@@ -78,7 +79,12 @@ static void exit_printer3d_app_main_event_cb( lv_obj_t * obj, lv_event_t event )
 static void enter_printer3d_app_setup_event_cb( lv_obj_t * obj, lv_event_t event );
 static bool printer3d_main_wifictl_event_cb( EventBits_t event, void *arg );
 
-bool printer3d_refresh();
+#ifndef NATIVE_64BIT
+    TaskHandle_t printer3d_refresh_handle;
+#endif
+printer3d_result_t printer3d_refresh_result;
+
+void printer3d_refresh(void *parameter);
 void printer3d_send(WiFiClient client, char* buffer, const char* command);
 void printer3d_app_task( lv_task_t * task );
 
@@ -236,8 +242,52 @@ void printer3d_app_task( lv_task_t * task ) {
             nextmillis = millis() + 60000L;
         }
 
+        if (printer3d_refresh_result.machineType == nullptr) printer3d_refresh_result.machineType = (volatile char*)CALLOC(32, sizeof(char));
+        if (printer3d_refresh_result.machineVersion == nullptr) printer3d_refresh_result.machineVersion = (volatile char*)CALLOC(16, sizeof(char));
+        if (printer3d_refresh_result.stateMachine == nullptr) printer3d_refresh_result.stateMachine = (volatile char*)CALLOC(16, sizeof(char));
+        if (printer3d_refresh_result.stateMove == nullptr) printer3d_refresh_result.stateMove = (volatile char*)CALLOC(16, sizeof(char));
+
         printer3d_app_set_indicator( ICON_INDICATOR_UPDATE );
-        if (printer3d_refresh()) {
+        #ifdef NATIVE_64BIT
+            printer3d_refresh( NULL );
+        #else
+            xTaskCreatePinnedToCore(printer3d_refresh, "printer3d_refresh", 2500, NULL, 0, &printer3d_refresh_handle, 1);
+        #endif
+    }
+
+    if (printer3d_refresh_result.changed) {
+        printer3d_refresh_result.changed = false;
+        char val[32];
+
+        snprintf( val, sizeof(val), "%s", printer3d_refresh_result.machineType );
+        lv_label_set_text(printer3d_heading_name, val);
+
+        snprintf( val, sizeof(val), "%s", printer3d_refresh_result.machineVersion );
+        lv_label_set_text(printer3d_heading_version, val);
+
+        snprintf( val, sizeof(val), "%s", printer3d_refresh_result.stateMachine );
+        lv_label_set_text(printer3d_progress_state, val);
+
+        if (printer3d_refresh_result.extruderTemp >= 0 && printer3d_refresh_result.extruderTemp <= 350) {
+            snprintf( val, sizeof(val), "%d°C", printer3d_refresh_result.extruderTemp );
+            lv_label_set_text(printer3d_extruder_temp, val);
+        }
+        
+        if (printer3d_refresh_result.printbedTemp >= 0 && printer3d_refresh_result.printbedTemp <= 100) {
+            snprintf( val, sizeof(val), "%d°C", printer3d_refresh_result.printbedTemp );
+            lv_label_set_text(printer3d_printbed_temp, val);
+        }
+
+        lv_linemeter_set_value(printer3d_progress_linemeter, printer3d_refresh_result.printProgress);
+        lv_linemeter_set_range(printer3d_progress_linemeter, 0, printer3d_refresh_result.printMax);
+
+        uint8_t printPercent = printer3d_refresh_result.printProgress * 100 / printer3d_refresh_result.printMax;
+        if (printPercent >= 0 && printPercent <= 100) {
+            snprintf( val, sizeof(val), "%d%%", printPercent );
+            lv_label_set_text(printer3d_progress_percent, val);
+        }
+
+        if (printer3d_refresh_result.success) {
             printer3d_app_set_indicator( ICON_INDICATOR_OK );
         } else {
             printer3d_app_set_indicator( ICON_INDICATOR_FAIL );
@@ -245,11 +295,18 @@ void printer3d_app_task( lv_task_t * task ) {
     }
 }
 
-bool printer3d_refresh() {
-    if (!printer3d_state) return false;
+void printer3d_refresh(void *parameter) {
+    if (!printer3d_state) return;
 
     printer3d_config_t *printer3d_config = printer3d_get_config();
-    if (!strlen(printer3d_config->host)) return false;
+    if (!strlen(printer3d_config->host)) {
+        printer3d_refresh_result.changed = true;
+        printer3d_refresh_result.success = false;
+        #ifndef NATIVE_64BIT
+            vTaskDelete(NULL);
+        #endif
+        return;
+    }
 
     // connecting to 3d printer
     WiFiClient client;
@@ -262,7 +319,12 @@ bool printer3d_refresh() {
 
     if (!client.connected()){
         log_w("printer3d: could not connect to %s:%d", printer3d_config->host, printer3d_config->port);
-        return false;
+        printer3d_refresh_result.changed = true;
+        printer3d_refresh_result.success = false;
+        #ifndef NATIVE_64BIT
+            vTaskDelete(NULL);
+        #endif
+        return;
     }
 
     // sending G-Codes to 3d printer
@@ -284,12 +346,12 @@ bool printer3d_refresh() {
 
         char* generalInfoType = strstr(generalInfo, "Machine Type:");
         if ( generalInfoType != NULL && strlen(generalInfoType) > 0 && sscanf( generalInfoType, "Machine Type: %[a-zA-Z0-9- ]", machineType ) > 0 ) {
-            lv_label_set_text( printer3d_heading_name, machineType);
+            for (uint8_t i = 0; i < strlen(machineType); i++) printer3d_refresh_result.machineType[i] = machineType[i];
         }
 
         char* generalInfoVersion = strstr(generalInfo, "Firmware:");
         if ( generalInfoVersion != NULL && strlen(generalInfoVersion) > 0 && sscanf( generalInfoVersion, "Firmware: %s", machineVersion ) > 0 ) {
-            lv_label_set_text( printer3d_heading_version, machineVersion);
+            for (uint8_t i = 0; i < strlen(machineVersion); i++) printer3d_refresh_result.machineVersion[i] = machineVersion[i];
         }
     }
     free( generalInfo );
@@ -299,12 +361,12 @@ bool printer3d_refresh() {
 
         char* stateInfoMachine = strstr(stateInfo, "MachineStatus:");
         if ( stateInfoMachine != NULL && strlen(stateInfoMachine) > 0 && sscanf( stateInfoMachine, "MachineStatus: %[a-zA-Z]", stateMachine ) > 0 ) {
-            lv_label_set_text( printer3d_progress_state, stateMachine);
+            for (uint8_t i = 0; i < strlen(stateMachine); i++) printer3d_refresh_result.stateMachine[i] = stateMachine[i];
         }
 
         char* stateInfoMove = strstr(stateInfo, "MoveMode:");
         if ( stateInfoMove != NULL && strlen(stateInfoMove) > 0 && sscanf( stateInfoMove, "MoveMode: %[a-zA-Z]", stateMove ) > 0 ) {
-            // currently unused
+            for (uint8_t i = 0; i < strlen(stateMove); i++) printer3d_refresh_result.stateMove[i] = stateMove[i];
         }
     }
     free( stateInfo );
@@ -314,17 +376,8 @@ bool printer3d_refresh() {
         
         char* tempInfoLine = strstr(tempInfo, "T0:");
         if ( tempInfoLine != NULL && strlen(tempInfoLine) > 0 && sscanf( tempInfoLine, "T0:%d /%*d B:%d/%*d", &extruderTemp, &printbedTemp ) > 0 ) {
-            char val[8];
-
-            if (extruderTemp >= 0 && extruderTemp <= 350) {
-                snprintf( val, sizeof(val), "%d°C", extruderTemp );
-                lv_label_set_text(printer3d_extruder_temp, val);
-            }
-            
-            if (printbedTemp >= 0 && printbedTemp <= 100) {
-                snprintf( val, sizeof(val), "%d°C", printbedTemp );
-                lv_label_set_text(printer3d_printbed_temp, val);
-            }
+            printer3d_refresh_result.extruderTemp = extruderTemp;
+            printer3d_refresh_result.printbedTemp = printbedTemp;
         }
     }
     free( tempInfo );
@@ -334,20 +387,17 @@ bool printer3d_refresh() {
         
         char* printInfoLine = strstr(printInfo, "byte ");
         if ( printInfoLine != NULL && strlen(printInfoLine) > 0 && sscanf( printInfoLine, "byte %d/%d", &printProgress, &printMax ) > 0 ) {
-            char val[8];
-
-            if (printMax > 0) lv_linemeter_set_range(printer3d_progress_linemeter, 0, printMax);
-            if (printProgress >= 0 && printProgress <= printMax) lv_linemeter_set_value(printer3d_progress_linemeter, printProgress);
-
-            if (printProgress >= 0 && printProgress <= 100) {
-                snprintf( val, sizeof(val), "%d%%", printProgress );
-                lv_label_set_text(printer3d_progress_percent, val);
-            }
+            if (printProgress >= 0 && printProgress <= printMax) printer3d_refresh_result.printProgress = printProgress;
+            if (printMax > 0) printer3d_refresh_result.printMax = printMax;
         }
     }
     free( printInfo );
 
-    return true;
+    printer3d_refresh_result.changed = true;
+    printer3d_refresh_result.success = true;
+    #ifndef NATIVE_64BIT
+        vTaskDelete(NULL);
+    #endif
 }
 
 void printer3d_send(WiFiClient client, char* buffer, const char* command) {

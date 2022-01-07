@@ -31,6 +31,19 @@
         uint16_t port = 8899;
     } printer3d_config_t;
 
+    typedef struct {
+        volatile bool changed = false;
+        volatile bool success = false;
+        volatile char* machineType = nullptr;
+        volatile char* machineVersion = nullptr;
+        volatile char* stateMachine = nullptr;
+        volatile char* stateMove = nullptr;
+        volatile uint16_t extruderTemp;
+        volatile uint16_t printbedTemp;
+        volatile uint16_t printProgress = 0;
+        volatile uint16_t printMax = 100;
+    } printer3d_result_t;
+
 //    #define PRINTER3D_WIDGET    // uncomment if an widget need
 
     void printer3d_app_setup( void );
