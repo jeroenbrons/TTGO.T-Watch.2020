@@ -273,6 +273,8 @@ static void mqtt_control_message_cb(char *topic, byte *payload, size_t length) {
                 }
                 break;
         }
+
+        free( payload_msg );
     }
 }
 
