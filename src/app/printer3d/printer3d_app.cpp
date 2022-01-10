@@ -199,6 +199,7 @@ void printer3d_load_config( void ) {
         else {
             strncpy( printer3d_config.host, doc["host"], sizeof( printer3d_config.host ) );
             printer3d_config.port = (uint16_t)doc["port"];
+            strncpy( printer3d_config.pass, doc["pass"], sizeof( printer3d_config.pass ) );
         }
         doc.clear();
     }
@@ -237,6 +238,7 @@ void printer3d_save_config( void ) {
 
         doc["host"] = printer3d_config.host;
         doc["port"] = printer3d_config.port;
+        doc["pass"] = printer3d_config.pass;
 
         if ( serializeJsonPretty( doc, file ) == 0) {
             log_e("Failed to write config file");

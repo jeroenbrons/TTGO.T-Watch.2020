@@ -259,23 +259,37 @@ void printer3d_app_task( lv_task_t * task ) {
         printer3d_refresh_result.changed = false;
         char val[32];
 
-        snprintf( val, sizeof(val), "%s", printer3d_refresh_result.machineType );
-        lv_label_set_text(printer3d_heading_name, val);
+        if (printer3d_refresh_result.machineType[0] != '\0') {
+            snprintf( val, sizeof(val), "%s", printer3d_refresh_result.machineType );
+            lv_label_set_text(printer3d_heading_name, val);
+        }
 
-        snprintf( val, sizeof(val), "%s", printer3d_refresh_result.machineVersion );
-        lv_label_set_text(printer3d_heading_version, val);
+        if (printer3d_refresh_result.machineVersion[0] != '\0') {
+            snprintf( val, sizeof(val), "%s", printer3d_refresh_result.machineVersion );
+            lv_label_set_text(printer3d_heading_version, val);
+        }
 
         snprintf( val, sizeof(val), "%s", printer3d_refresh_result.stateMachine );
         lv_label_set_text(printer3d_progress_state, val);
 
-        if (printer3d_refresh_result.extruderTemp >= 0 && printer3d_refresh_result.extruderTemp <= 350) {
-            snprintf( val, sizeof(val), "%d°C", printer3d_refresh_result.extruderTemp );
-            lv_label_set_text(printer3d_extruder_temp, val);
+        if (printer3d_refresh_result.extruderTemp >= 0 && printer3d_refresh_result.extruderTemp <= 500) {
+            if (printer3d_refresh_result.extruderTempMax > 0 && printer3d_refresh_result.extruderTempMax <= 500) {
+                snprintf( val, sizeof(val), "%.1f / %.1f°C", printer3d_refresh_result.extruderTemp, printer3d_refresh_result.extruderTempMax );
+                lv_label_set_text(printer3d_extruder_temp, val);
+            } else {
+                snprintf( val, sizeof(val), "%.1f°C", printer3d_refresh_result.extruderTemp );
+                lv_label_set_text(printer3d_extruder_temp, val);
+            }
         }
         
         if (printer3d_refresh_result.printbedTemp >= 0 && printer3d_refresh_result.printbedTemp <= 100) {
-            snprintf( val, sizeof(val), "%d°C", printer3d_refresh_result.printbedTemp );
-            lv_label_set_text(printer3d_printbed_temp, val);
+            if (printer3d_refresh_result.printbedTempMax > 0 && printer3d_refresh_result.printbedTempMax <= 100) {
+                snprintf( val, sizeof(val), "%.1f / %.1f°C", printer3d_refresh_result.printbedTemp, printer3d_refresh_result.printbedTempMax );
+                lv_label_set_text(printer3d_printbed_temp, val);
+            } else {
+                snprintf( val, sizeof(val), "%.1f°C", printer3d_refresh_result.printbedTemp );
+                lv_label_set_text(printer3d_printbed_temp, val);
+            }
         }
 
         lv_linemeter_set_value(printer3d_progress_linemeter, printer3d_refresh_result.printProgress);
@@ -328,10 +342,17 @@ void printer3d_refresh(void *parameter) {
     }
 
     // sending G-Codes to 3d printer
+    char* esp3dInfo = (char*)MALLOC( 1024 );
     char* generalInfo = (char*)MALLOC( 1024 );
     char* stateInfo = (char*)MALLOC( 1024 );
     char* tempInfo = (char*)MALLOC( 512 );
     char* printInfo = (char*)MALLOC( 512 );
+
+    if (strlen(printer3d_config->pass) > 0) {
+        char val[30];
+        snprintf( val, sizeof(val), "[ESP800]pwd=%s", printer3d_config->pass );
+        printer3d_send(client, esp3dInfo, val);
+    }
     printer3d_send(client, generalInfo, "~M115");
     printer3d_send(client, stateInfo, "~M119");
     printer3d_send(client, tempInfo, "~M105");
@@ -341,16 +362,46 @@ void printer3d_refresh(void *parameter) {
     client.stop();
 
     // parse received information from the 3d printer
-    if (generalInfo != NULL && strlen(generalInfo) > 0) {
+    if (esp3dInfo != NULL && strlen(esp3dInfo) > 0) {
         char machineType[32], machineVersion[16];
 
-        char* generalInfoType = strstr(generalInfo, "Machine Type:");
-        if ( generalInfoType != NULL && strlen(generalInfoType) > 0 && sscanf( generalInfoType, "Machine Type: %[a-zA-Z0-9- ]", machineType ) > 0 ) {
+        char* esp3dInfoType1 = strstr(esp3dInfo, "FW target");
+        if ( esp3dInfoType1 != NULL && strlen(esp3dInfoType1) > 0 && sscanf( esp3dInfoType1, "FW target: %s", machineType ) > 0 ) {
             for (uint8_t i = 0; i < strlen(machineType); i++) printer3d_refresh_result.machineType[i] = machineType[i];
         }
 
-        char* generalInfoVersion = strstr(generalInfo, "Firmware:");
-        if ( generalInfoVersion != NULL && strlen(generalInfoVersion) > 0 && sscanf( generalInfoVersion, "Firmware: %s", machineVersion ) > 0 ) {
+        char* esp3dInfoType2 = strstr(esp3dInfo, "hostname");
+        if ( esp3dInfoType2 != NULL && strlen(esp3dInfoType2) > 0 && sscanf( esp3dInfoType2, "hostname: %s", machineType ) > 0 ) {
+            for (uint8_t i = 0; i < strlen(machineType); i++) printer3d_refresh_result.machineType[i] = machineType[i];
+        }
+
+        char* esp3dInfoVersion = strstr(esp3dInfo, "FW version:");
+        if ( esp3dInfoVersion != NULL && strlen(esp3dInfoVersion) > 0 && sscanf( esp3dInfoVersion, "FW version: %s", machineVersion ) > 0 ) {
+            for (uint8_t i = 0; i < strlen(machineVersion); i++) printer3d_refresh_result.machineVersion[i] = machineVersion[i];
+        }
+    }
+    free( esp3dInfo );
+    
+    if (generalInfo != NULL && strlen(generalInfo) > 0) {
+        char machineType[32], machineVersion[16];
+
+        char* generalInfoType1 = strstr(generalInfo, "Machine Type:");
+        if ( generalInfoType1 != NULL && strlen(generalInfoType1) > 0 && sscanf( generalInfoType1, "Machine Type: %[a-zA-Z0-9- ]", machineType ) > 0 ) {
+            for (uint8_t i = 0; i < strlen(machineType); i++) printer3d_refresh_result.machineType[i] = machineType[i];
+        }
+
+        char* generalInfoType2 = strstr(generalInfo, "FIRMWARE_NAME");
+        if ( generalInfoType2 != NULL && strlen(generalInfoType2) > 0 && sscanf( generalInfoType2, "FIRMWARE_NAME: %s", machineType ) > 0 ) {
+            for (uint8_t i = 0; i < strlen(machineType); i++) printer3d_refresh_result.machineType[i] = machineType[i];
+        }
+
+        char* generalInfoVersion1 = strstr(generalInfo, "Firmware:");
+        if ( generalInfoVersion1 != NULL && strlen(generalInfoVersion1) > 0 && sscanf( generalInfoVersion1, "Firmware: %s", machineVersion ) > 0 ) {
+            for (uint8_t i = 0; i < strlen(machineVersion); i++) printer3d_refresh_result.machineVersion[i] = machineVersion[i];
+        }
+
+        char* generalInfoVersion2 = strstr(generalInfo, "FIRMWARE_VERSION:");
+        if ( generalInfoVersion2 != NULL && strlen(generalInfoVersion2) > 0 && sscanf( generalInfoVersion2, "FIRMWARE_VERSION: %s", machineVersion ) > 0 ) {
             for (uint8_t i = 0; i < strlen(machineVersion); i++) printer3d_refresh_result.machineVersion[i] = machineVersion[i];
         }
     }
@@ -372,21 +423,37 @@ void printer3d_refresh(void *parameter) {
     free( stateInfo );
 
     if (tempInfo != NULL && strlen(tempInfo) > 0) {
-        int extruderTemp, printbedTemp;
+        float extruderTemp = -1;
+        float extruderTempMax = -1;
+        float printbedTemp = -1;
+        float printbedTempMax = -1;
         
-        char* tempInfoLine = strstr(tempInfo, "T0:");
-        if ( tempInfoLine != NULL && strlen(tempInfoLine) > 0 && sscanf( tempInfoLine, "T0:%d /%*d B:%d/%*d", &extruderTemp, &printbedTemp ) > 0 ) {
-            printer3d_refresh_result.extruderTemp = extruderTemp;
-            printer3d_refresh_result.printbedTemp = printbedTemp;
+        char* extruderLine1 = strstr(tempInfo, "T:");
+        if ( extruderTemp < 0 && extruderLine1 != NULL && strlen(extruderLine1) > 0 && sscanf( extruderLine1, "T: %f / %f", &extruderTemp, &extruderTempMax ) > 0 ) {
+            if (extruderTemp >= 0) printer3d_refresh_result.extruderTemp = extruderTemp;
+            if (extruderTempMax >= 0) printer3d_refresh_result.extruderTempMax = extruderTempMax;
+        }
+
+        char* extruderLine2 = strstr(tempInfo, "T0:");
+        if ( extruderTemp < 0 && extruderLine2 != NULL && strlen(extruderLine2) > 0 && sscanf( extruderLine2, "T0: %f / %f", &extruderTemp, &extruderTempMax ) > 0 ) {
+            if (extruderTemp >= 0) printer3d_refresh_result.extruderTemp = extruderTemp;
+            if (extruderTempMax >= 0) printer3d_refresh_result.extruderTempMax = extruderTempMax;
+        }
+
+        char* printbedLine = strstr(tempInfo, "B:");
+        if ( printbedLine != NULL && strlen(printbedLine) > 0 && sscanf( printbedLine, "B: %f / %f", &printbedTemp, &printbedTempMax ) > 0 ) {
+            if (printbedTemp >= 0) printer3d_refresh_result.printbedTemp = printbedTemp;
+            if (printbedTempMax >= 0) printer3d_refresh_result.printbedTempMax = printbedTempMax;
         }
     }
     free( tempInfo );
     
     if (printInfo != NULL && strlen(printInfo) > 0) {
-        int printProgress, printMax;
+        int printProgress = -1;
+        int printMax = -1;
         
         char* printInfoLine = strstr(printInfo, "byte ");
-        if ( printInfoLine != NULL && strlen(printInfoLine) > 0 && sscanf( printInfoLine, "byte %d/%d", &printProgress, &printMax ) > 0 ) {
+        if ( printInfoLine != NULL && strlen(printInfoLine) > 0 && sscanf( printInfoLine, "byte %d / %d", &printProgress, &printMax ) > 0 ) {
             if (printProgress >= 0 && printProgress <= printMax) printer3d_refresh_result.printProgress = printProgress;
             if (printMax > 0) printer3d_refresh_result.printMax = printMax;
         }

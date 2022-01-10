@@ -46,6 +46,7 @@
 lv_obj_t *printer3d_app_setup_tile = NULL;
 lv_obj_t *printer3d_host_textfield = NULL;
 lv_obj_t *printer3d_port_textfield = NULL;
+lv_obj_t *printer3d_pass_textfield = NULL;
 
 static void exit_printer3d_app_setup_event_cb( lv_obj_t * obj, lv_event_t event );
 static void printer3d_textarea_event_cb( lv_obj_t * obj, lv_event_t event );
@@ -61,7 +62,7 @@ void printer3d_app_setup_setup( uint32_t tile_num ) {
     printer3d_app_setup_tile = mainbar_get_tile_obj( tile_num );
     
     lv_obj_t *header = wf_add_settings_header( printer3d_app_setup_tile, "3d printer setup", exit_printer3d_app_setup_event_cb );
-    lv_obj_align( header, printer3d_app_setup_tile, LV_ALIGN_IN_TOP_LEFT, THEME_PADDING, THEME_PADDING );
+    lv_obj_align( header, printer3d_app_setup_tile, LV_ALIGN_IN_TOP_LEFT, 10, 10 );
 
     // config fields    
     lv_obj_t *printer3d_server_cont = lv_obj_create( printer3d_app_setup_tile, NULL );
@@ -100,8 +101,26 @@ void printer3d_app_setup_setup( uint32_t tile_num ) {
     lv_obj_align( printer3d_port_textfield, printer3d_port_cont, LV_ALIGN_IN_RIGHT_MID, -THEME_ICON_PADDING, 0 );
     lv_obj_set_event_cb( printer3d_port_textfield, printer3d_num_textarea_event_cb );
 
+    lv_obj_t *printer3d_password_cont = lv_obj_create( printer3d_app_setup_tile, NULL );
+    lv_obj_set_size( printer3d_password_cont, lv_disp_get_hor_res( NULL ) , 37);
+    lv_obj_add_style( printer3d_password_cont, LV_OBJ_PART_MAIN, SETUP_STYLE  );
+    lv_obj_align( printer3d_password_cont, printer3d_port_cont, LV_ALIGN_OUT_BOTTOM_MID, 0, THEME_ICON_PADDING );
+    lv_obj_t *printer3d_password_label = lv_label_create( printer3d_password_cont, NULL);
+    lv_obj_add_style( printer3d_password_label, LV_OBJ_PART_MAIN, SETUP_STYLE  );
+    lv_label_set_text( printer3d_password_label, "pass");
+    lv_obj_align( printer3d_password_label, printer3d_password_cont, LV_ALIGN_IN_LEFT_MID, THEME_ICON_PADDING, 0 );
+    printer3d_pass_textfield = lv_textarea_create( printer3d_password_cont, NULL);
+    lv_textarea_set_text( printer3d_pass_textfield, printer3d_config->pass );
+    lv_textarea_set_pwd_mode( printer3d_pass_textfield, false);
+    lv_textarea_set_one_line( printer3d_pass_textfield, true);
+    lv_textarea_set_cursor_hidden( printer3d_pass_textfield, true);
+    lv_obj_set_width( printer3d_pass_textfield, lv_disp_get_hor_res( NULL ) / 4 * 3  - THEME_ICON_PADDING );
+    lv_obj_align( printer3d_pass_textfield, printer3d_password_cont, LV_ALIGN_IN_RIGHT_MID, -THEME_ICON_PADDING, 0 );
+    lv_obj_set_event_cb( printer3d_pass_textfield, printer3d_textarea_event_cb );
+    
     lv_tileview_add_element( printer3d_app_setup_tile, printer3d_server_cont );
     lv_tileview_add_element( printer3d_app_setup_tile, printer3d_port_cont );
+    lv_tileview_add_element( printer3d_app_setup_tile, printer3d_password_cont );
 }
 
 static void exit_printer3d_app_setup_event_cb( lv_obj_t * obj, lv_event_t event ) {
@@ -132,5 +151,6 @@ void printer3d_setup_save_config( void ) {
     printer3d_config_t *printer3d_config = printer3d_get_config();
     strncpy( printer3d_config->host, lv_textarea_get_text( printer3d_host_textfield ), sizeof( printer3d_config->host ) );
     printer3d_config->port = atoi(lv_textarea_get_text( printer3d_port_textfield ));
+    strncpy( printer3d_config->pass, lv_textarea_get_text( printer3d_pass_textfield ), sizeof( printer3d_config->pass ) );
     printer3d_save_config();
 }
