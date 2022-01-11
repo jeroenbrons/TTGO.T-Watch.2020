@@ -20,6 +20,7 @@
  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 #include "config.h"
+#include "tjpgd.h"
 
 #include "printer3d_app.h"
 #include "printer3d_app_main.h"
@@ -51,6 +52,17 @@ volatile bool printer3d_state = false;
 volatile bool printer3d_open_state = false;
 static uint64_t nextmillis = 0;
 
+const char* streamUrl = ""; //TODO: Move this into setup later
+uint8_t* mjpeg_buffer;
+size_t mjpeg_width = 640;
+size_t mjpeg_height = 480;
+size_t mjpeg_size = mjpeg_width * mjpeg_height * sizeof(lv_color_t);
+
+uint8_t* mjpeg_frame;
+size_t mjpeg_frame_width = 100;
+size_t mjpeg_frame_height = 100;
+size_t mjpeg_frame_size = mjpeg_frame_width * mjpeg_frame_height * sizeof(lv_color_t);
+
 lv_obj_t *printer3d_app_main_tile = NULL;
 
 lv_task_t * _printer3d_app_task;
@@ -67,6 +79,7 @@ lv_obj_t* printer3d_extruder_label;
 lv_obj_t* printer3d_extruder_temp;
 lv_obj_t* printer3d_printbed_label;
 lv_obj_t* printer3d_printbed_temp;
+lv_obj_t* printer3d_video_img;
 
 LV_IMG_DECLARE(refresh_32px);
 
@@ -81,12 +94,14 @@ static bool printer3d_main_wifictl_event_cb( EventBits_t event, void *arg );
 
 #ifndef NATIVE_64BIT
     TaskHandle_t printer3d_refresh_handle;
+    TaskHandle_t printer3d_mjpeg_handle;
 #endif
 printer3d_result_t printer3d_refresh_result;
 
 void printer3d_refresh(void *parameter);
 void printer3d_send(WiFiClient client, char* buffer, const char* command);
 void printer3d_app_task( lv_task_t * task );
+void printer3d_mjpeg_init();
 
 void printer3d_app_main_setup( uint32_t tile_num ) {
 
@@ -303,6 +318,7 @@ void printer3d_app_task( lv_task_t * task ) {
 
         if (printer3d_refresh_result.success) {
             printer3d_app_set_indicator( ICON_INDICATOR_OK );
+            if (printer3d_open_state) printer3d_mjpeg_init();
         } else {
             printer3d_app_set_indicator( ICON_INDICATOR_FAIL );
         }
@@ -324,7 +340,8 @@ void printer3d_refresh(void *parameter) {
 
     // connecting to 3d printer
     WiFiClient client;
-    client.connect(printer3d_config->host, printer3d_config->port, 3000);
+    client.connect(printer3d_config->host, printer3d_config->port);
+    client.setTimeout(3);
 
     for (uint8_t i = 0; i < 30; i++) {
         if (client.connected()) break;
@@ -483,4 +500,123 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
     }
     
     log_d("3dprinter received: %s", buffer);
+}
+
+#ifndef NATIVE_64BIT
+    static uint32_t printer3d_mjpeg_input(JDEC* decoder, uint8_t* buffer, uint32_t size) {
+        WiFiClient* stream = (WiFiClient*)decoder->device;
+        const uint16_t EOI = 0xffd9;
+        uint16_t bytes_read = 0;
+
+        while (stream->connected()) if (stream->read() == EOI) break;
+        if (buffer) bytes_read = stream->readBytes(mjpeg_buffer, mjpeg_size);
+        return bytes_read;
+    }
+
+    static int32_t printer3d_mjpeg_output(JDEC* decoder, void* data, JRECT* rect) {
+        uint8_t* buffer = (uint8_t*)data;
+        const int INPUT_PIXEL_SIZE = sizeof(lv_color_t);
+        const int row_width = rect->right - rect->left + 1;
+        const int row_size = row_width * INPUT_PIXEL_SIZE;
+
+        for( int y = rect->top; y <= rect->bottom; y++ ) {
+            int row_offset = y * mjpeg_width * INPUT_PIXEL_SIZE + rect->left * INPUT_PIXEL_SIZE;
+            memcpy( mjpeg_frame + row_offset, buffer, row_size );
+            buffer += row_size;
+        }
+
+        return 1;
+    }
+
+    void printer3d_mjpeg_task(void *params)
+    {
+        HTTPClient mjpeg_client;
+        mjpeg_client.useHTTP10(true);
+        mjpeg_client.setConnectTimeout(1000);
+        mjpeg_client.setTimeout(2000);
+        mjpeg_client.begin(streamUrl);
+
+        int httpcode = mjpeg_client.GET();
+        if (httpcode < 200 || httpcode >= 400) {
+
+            log_w("3dprinter could not connect to video stream at %s", streamUrl);
+            
+            if (mjpeg_buffer != nullptr) {
+                free(mjpeg_buffer);
+                mjpeg_buffer = nullptr;
+            }
+            vTaskDelete(NULL);
+
+        } else {
+
+            log_i("3dprinter connected to video stream at %s", streamUrl);
+
+            // prepare lvgl image
+            mjpeg_frame = (uint8_t*)MALLOC(mjpeg_frame_size);
+            lv_img_dsc_t printer3d_video = {
+                { /* lv_img_header_t declaration */
+                    LV_IMG_CF_TRUE_COLOR, /* Color format: See lv_img_color_format_t */
+                    0,                    /* It the upper bits of the first byte. Always zero to look like a non-printable character */
+                    2,                    /* Reserved to be used later */
+                    mjpeg_frame_width,    /* Width of the image map */
+                    mjpeg_frame_height    /* Height of the image map */
+                },
+                mjpeg_frame_size,
+                mjpeg_frame
+            };
+            printer3d_video_img = lv_img_create(printer3d_app_main_tile, NULL);
+            lv_img_set_src(printer3d_video_img, &printer3d_video);
+            lv_obj_set_size(printer3d_video_img, 100, 100);
+            lv_obj_align( printer3d_video_img, printer3d_app_main_tile, LV_ALIGN_IN_TOP_MID, 0, 30 );
+
+            // prepare stream
+            WiFiClient stream = mjpeg_client.getStream();
+            stream.setTimeout(5);
+
+            // prepare decoder
+            JDEC* decoder = (JDEC*)MALLOC(sizeof(JDEC));
+            jd_prepare( decoder, printer3d_mjpeg_input, mjpeg_buffer, mjpeg_size, &(stream));
+
+            while (true) {
+                if (!printer3d_state) break;
+                if (!printer3d_open_state) break;
+                if (!stream.connected()) break;
+
+                if (!stream.available()) {
+                    vTaskDelay(10);
+                    continue;
+                }
+
+                // decode frames and notify lvgl image
+                jd_decomp( decoder, printer3d_mjpeg_output, 0);
+                lv_obj_invalidate(printer3d_video_img);
+                vTaskDelay(100);
+            }
+
+            lv_mem_free(printer3d_video_img);
+            printer3d_video_img = nullptr;
+
+            free(mjpeg_frame);
+            free(decoder);
+        }
+
+        log_w("3dprinter closed connection to video stream at %s", streamUrl);
+
+        if (mjpeg_buffer != nullptr) {
+            free(mjpeg_buffer);
+            mjpeg_buffer = nullptr;
+        }
+        vTaskDelete(NULL);
+    }
+#endif
+
+void printer3d_mjpeg_init() {
+    #ifdef NATIVE_64BIT
+        return;
+    #endif
+
+    if (mjpeg_buffer == nullptr) {
+        mjpeg_buffer = (uint8_t*)MALLOC(mjpeg_size);
+        xTaskCreatePinnedToCore(printer3d_mjpeg_task, "printer3d_mjpeg", 5000, NULL, 0, &printer3d_mjpeg_handle, 1);
+    }
 }
