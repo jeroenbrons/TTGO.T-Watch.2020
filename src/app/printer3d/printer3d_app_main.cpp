@@ -324,7 +324,8 @@ void printer3d_refresh(void *parameter) {
 
     // connecting to 3d printer
     WiFiClient client;
-    client.connect(printer3d_config->host, printer3d_config->port, 3000);
+    client.connect(printer3d_config->host, printer3d_config->port, 2000);
+    client.setTimeout(3);
 
     for (uint8_t i = 0; i < 30; i++) {
         if (client.connected()) break;
