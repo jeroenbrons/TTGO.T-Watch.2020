@@ -30,6 +30,9 @@
         char host[32] = "";
         uint16_t port = 8899;
         char pass[16] = "";
+        char camera[64] = "";
+        uint16_t cameraWidth = 640;
+        uint16_t cameraHeight = 480;
     } printer3d_config_t;
 
     typedef struct {
