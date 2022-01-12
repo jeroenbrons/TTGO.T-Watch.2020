@@ -102,7 +102,7 @@ printer3d_result_t printer3d_refresh_result;
 void printer3d_refresh(void *parameter);
 void printer3d_send(WiFiClient client, char* buffer, const char* command);
 void printer3d_app_task( lv_task_t * task );
-void printer3d_mjpeg_init(printer3d_config_t *printer3d_config);
+void printer3d_mjpeg_init( void );
 
 void printer3d_app_main_setup( uint32_t tile_num ) {
 
@@ -277,7 +277,6 @@ static void exit_printer3d_app_main_event_cb( lv_obj_t * obj, lv_event_t event )
 
 void printer3d_app_task( lv_task_t * task ) {
     if (!printer3d_state) return;
-    printer3d_config_t *printer3d_config = printer3d_get_config();
 
     if ( nextmillis < millis() ) {
         if (printer3d_open_state) {
@@ -293,13 +292,13 @@ void printer3d_app_task( lv_task_t * task ) {
 
         printer3d_app_set_indicator( ICON_INDICATOR_UPDATE );
         #ifdef NATIVE_64BIT
-            printer3d_refresh( (void*)printer3d_config );
+            printer3d_refresh( NULL );
         #else
-            xTaskCreatePinnedToCore(printer3d_refresh, "printer3d_refresh", 2500, (void*)printer3d_config, 0, &printer3d_refresh_handle, 1);
+            xTaskCreatePinnedToCore(printer3d_refresh, "printer3d_refresh", 2500, NULL, 0, &printer3d_refresh_handle, 1);
         #endif
 
         if (printer3d_open_state) {
-            printer3d_mjpeg_init(printer3d_config);
+            printer3d_mjpeg_init();
         }
     }
 
@@ -674,7 +673,7 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
     }
 #endif
 
-void printer3d_mjpeg_init(printer3d_config_t *printer3d_config) {
+void printer3d_mjpeg_init( void ) {
     if (!printer3d_state) return;
     if (!printer3d_open_state) return;
 
@@ -682,6 +681,7 @@ void printer3d_mjpeg_init(printer3d_config_t *printer3d_config) {
         return;
     #endif
 
+    printer3d_config_t *printer3d_config = printer3d_get_config();
     if (mjpeg_buffer == nullptr && strlen(printer3d_config->camera) > 0 && printer3d_config->cameraWidth > 0 && printer3d_config->cameraHeight > 0) {
         mjpeg_url = printer3d_config->camera;
         mjpeg_width = printer3d_config->cameraWidth;
