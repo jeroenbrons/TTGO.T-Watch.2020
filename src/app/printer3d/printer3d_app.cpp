@@ -79,7 +79,12 @@ void printer3d_app_setup( void ) {
     printer3d_load_config();
 
     // register 2 vertical tiles and get the first tile number and save it for later use
-    printer3d_app_main_tile_num = mainbar_add_app_tile( 1, 1, "3d printer app" );
+    #ifdef NATIVE_64BIT
+        printer3d_app_main_tile_num = mainbar_add_app_tile( 1, 1, "3d printer app" );
+    #else
+        uint8_t tiles = strlen(printer3d_config.camera) > 0 ? 2 : 1;
+        printer3d_app_main_tile_num = mainbar_add_app_tile( tiles, 1, "3d printer app" );
+    #endif
     printer3d_app_setup_tile_num = mainbar_add_setup_tile( 1, 1, "3d printer app setup" );
 
     // register app icon on the app tile
@@ -197,9 +202,10 @@ void printer3d_load_config( void ) {
             log_e("update check deserializeJson() failed: %s", error.c_str() );
         }
         else {
-            strncpy( printer3d_config.host, doc["host"], sizeof( printer3d_config.host ) );
-            printer3d_config.port = (uint16_t)doc["port"];
-            strncpy( printer3d_config.pass, doc["pass"], sizeof( printer3d_config.pass ) );
+            if (doc.containsKey("host")) strncpy( printer3d_config.host, doc["host"], sizeof( printer3d_config.host ) );
+            if (doc.containsKey("port")) printer3d_config.port = (uint16_t)doc["port"];
+            if (doc.containsKey("pass")) strncpy( printer3d_config.pass, doc["pass"], sizeof( printer3d_config.pass ) );
+            if (doc.containsKey("camera")) strncpy( printer3d_config.camera, doc["camera"], sizeof( printer3d_config.camera ) );
         }
         doc.clear();
     }
@@ -239,6 +245,7 @@ void printer3d_save_config( void ) {
         doc["host"] = printer3d_config.host;
         doc["port"] = printer3d_config.port;
         doc["pass"] = printer3d_config.pass;
+        doc["camera"] = printer3d_config.camera;
 
         if ( serializeJsonPretty( doc, file ) == 0) {
             log_e("Failed to write config file");

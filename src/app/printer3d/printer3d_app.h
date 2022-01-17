@@ -25,11 +25,13 @@
     #include "gui/icon.h"
 
     #define PRINTER3D_JSON_CONFIG_FILE        "/printer3d.json"
+    #define PRINTER3D_MJPEG_BUFFER_SIZE       4096
 
     typedef struct {
         char host[32] = "";
         uint16_t port = 8899;
         char pass[16] = "";
+        char camera[64] = "";
     } printer3d_config_t;
 
     typedef struct {

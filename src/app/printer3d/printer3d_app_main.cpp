@@ -27,10 +27,12 @@
 #include "gui/mainbar/app_tile/app_tile.h"
 #include "gui/mainbar/main_tile/main_tile.h"
 #include "gui/mainbar/mainbar.h"
+#include "gui/sjpg_decoder/tjpgd.h"
 #include "gui/statusbar.h"
 #include "gui/widget_factory.h"
 #include "gui/widget_styles.h"
 
+#include "hardware/powermgm.h"
 #include "hardware/wifictl.h"
 #include "utils/json_psram_allocator.h"
 
@@ -51,7 +53,12 @@ volatile bool printer3d_state = false;
 volatile bool printer3d_open_state = false;
 static uint64_t nextmillis = 0;
 
+static uint8_t* mjpeg_buffer = nullptr;
+static uint8_t* mjpeg_frame = nullptr;
+static char* mjpeg_url;
+
 lv_obj_t *printer3d_app_main_tile = NULL;
+lv_obj_t *printer3d_app_video_tile = NULL;
 
 lv_task_t * _printer3d_app_task;
 
@@ -67,6 +74,11 @@ lv_obj_t* printer3d_extruder_label;
 lv_obj_t* printer3d_extruder_temp;
 lv_obj_t* printer3d_printbed_label;
 lv_obj_t* printer3d_printbed_temp;
+#ifndef NATIVE_64BIT
+    lv_style_t printer3d_app_video_style;
+    lv_obj_t* printer3d_video_img;
+    static lv_img_dsc_t printer3d_video;
+#endif
 
 LV_IMG_DECLARE(refresh_32px);
 
@@ -77,22 +89,28 @@ static void printer3d_setup_activate_callback ( void );
 static void printer3d_setup_hibernate_callback ( void );
 static void exit_printer3d_app_main_event_cb( lv_obj_t * obj, lv_event_t event );
 static void enter_printer3d_app_setup_event_cb( lv_obj_t * obj, lv_event_t event );
+static bool printer3d_powermgm_event_cb(EventBits_t event, void *arg);
 static bool printer3d_main_wifictl_event_cb( EventBits_t event, void *arg );
 
 #ifndef NATIVE_64BIT
     TaskHandle_t printer3d_refresh_handle;
+    TaskHandle_t printer3d_mjpeg_handle;
 #endif
 printer3d_result_t printer3d_refresh_result;
 
 void printer3d_refresh(void *parameter);
 void printer3d_send(WiFiClient client, char* buffer, const char* command);
 void printer3d_app_task( lv_task_t * task );
+void printer3d_mjpeg_init( void );
 
 void printer3d_app_main_setup( uint32_t tile_num ) {
 
     mainbar_add_tile_activate_cb( tile_num, printer3d_setup_activate_callback );
     mainbar_add_tile_hibernate_cb( tile_num, printer3d_setup_hibernate_callback );
     printer3d_app_main_tile = mainbar_get_tile_obj( tile_num );
+    #ifndef NATIVE_64BIT
+        printer3d_app_video_tile = mainbar_get_tile_obj( tile_num + 1 );
+    #endif
 
     // menu buttons
     lv_obj_t * exit_btn = wf_add_exit_button( printer3d_app_main_tile, exit_printer3d_app_main_event_cb );
@@ -183,7 +201,21 @@ void printer3d_app_main_setup( uint32_t tile_num ) {
     lv_obj_set_width( printer3d_printbed_temp, 100 );
     lv_obj_align( printer3d_printbed_temp, printer3d_app_main_tile, LV_ALIGN_IN_BOTTOM_RIGHT, -10, -65 );
 
+    // video img
+    #ifndef NATIVE_64BIT
+        printer3d_video_img = lv_img_create(printer3d_app_video_tile, NULL);
+        lv_style_copy(&printer3d_app_video_style, APP_ICON_STYLE );
+        lv_style_set_text_font(&printer3d_app_video_style, LV_STATE_DEFAULT, &lv_font_montserrat_32);
+        lv_obj_add_style( printer3d_video_img, LV_OBJ_PART_MAIN, &printer3d_app_video_style );
+        lv_img_set_src( printer3d_video_img, LV_SYMBOL_IMAGE );
+        lv_obj_align( printer3d_video_img, printer3d_app_video_tile, LV_ALIGN_IN_TOP_LEFT, (RES_X_MAX / 2) - 16, (RES_Y_MAX / 2) - 16 );
+
+        lv_obj_t * video_exit_btn = wf_add_exit_button( printer3d_app_video_tile, exit_printer3d_app_main_event_cb );
+        lv_obj_align(video_exit_btn, printer3d_app_video_tile, LV_ALIGN_IN_BOTTOM_LEFT, THEME_ICON_PADDING, -THEME_ICON_PADDING );
+    #endif
+
     // callbacks
+    powermgm_register_cb( POWERMGM_STANDBY | POWERMGM_STANDBY_REQUEST, printer3d_powermgm_event_cb, "printer3d powermgm");
     wifictl_register_cb( WIFICTL_OFF | WIFICTL_CONNECT_IP | WIFICTL_DISCONNECT, printer3d_main_wifictl_event_cb, "printer3d main" );
 
     // create an task that runs every second
@@ -198,6 +230,19 @@ static void printer3d_setup_activate_callback ( void ) {
 static void printer3d_setup_hibernate_callback ( void ) {
     printer3d_open_state = false;
     nextmillis = 0;
+}
+
+static bool printer3d_powermgm_event_cb(EventBits_t event, void *arg)
+{
+    switch( event ) {
+        case( POWERMGM_STANDBY ):
+            printer3d_open_state = false;
+            break;
+        case( POWERMGM_STANDBY_REQUEST ):
+            printer3d_open_state = false;
+            break;
+    }
+    return( true );
 }
 
 static bool printer3d_main_wifictl_event_cb( EventBits_t event, void *arg ) {    
@@ -237,9 +282,9 @@ void printer3d_app_task( lv_task_t * task ) {
 
     if ( nextmillis < millis() ) {
         if (printer3d_open_state) {
-            nextmillis = millis() + 15000L;
+            nextmillis = millis() + 30000L;
         } else {
-            nextmillis = millis() + 60000L;
+            nextmillis = millis() + 120000L;
         }
 
         if (printer3d_refresh_result.machineType == nullptr) printer3d_refresh_result.machineType = (volatile char*)CALLOC(32, sizeof(char));
@@ -253,6 +298,10 @@ void printer3d_app_task( lv_task_t * task ) {
         #else
             xTaskCreatePinnedToCore(printer3d_refresh, "printer3d_refresh", 2500, NULL, 0, &printer3d_refresh_handle, 1);
         #endif
+
+        if (printer3d_open_state) {
+            printer3d_mjpeg_init();
+        }
     }
 
     if (printer3d_refresh_result.changed) {
@@ -340,6 +389,8 @@ void printer3d_refresh(void *parameter) {
             vTaskDelete(NULL);
         #endif
         return;
+    } else {
+        log_i("printer3d: connected to %s:%d", printer3d_config->host, printer3d_config->port);
     }
 
     // sending G-Codes to 3d printer
@@ -470,6 +521,7 @@ void printer3d_refresh(void *parameter) {
 
 void printer3d_send(WiFiClient client, char* buffer, const char* command) {
     if (!printer3d_state) return;
+    if (!client.connected()) return;
 
     client.write(command);
     log_d("3dprinter sent command: %s", command);
@@ -484,4 +536,225 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
     }
     
     log_d("3dprinter received: %s", buffer);
+}
+
+#ifndef NATIVE_64BIT
+    static uint32_t printer3d_mjpeg_input(JDEC* decoder, uint8_t* buffer, uint32_t size) {
+        WiFiClient* stream = (WiFiClient*)decoder->device;
+
+        // read from the image stream
+        if (buffer) {
+            return stream->readBytes(buffer, size);
+        } else {
+            char temp[size];
+            return stream->readBytes(temp, size);
+        }
+
+        return 0;
+    }
+
+    static int32_t printer3d_mjpeg_output(JDEC* decoder, void* data, JRECT* rect) {
+        uint8_t* buffer = (uint8_t*)data;
+        const uint16_t row_width = rect->right - rect->left + 1;
+
+        // write partial decoded image into frame buffer
+        for ( uint16_t y = rect->top; y <= rect->bottom; y++ ) {
+            if (!printer3d_state || !printer3d_open_state) break;
+            if (!decoder->width || !decoder->height) break;
+            if (!mjpeg_frame) break;
+
+            // convert raw output into the corresponding color depth pixels
+            #if LV_COLOR_DEPTH == 32
+                uint8_t pixelsize = 4;
+                uint32_t offset = y * decoder->width * pixelsize + rect->left * pixelsize;
+                for ( uint32_t i = 0; i < row_width; i++ ) {
+                    mjpeg_frame[offset + 3] = 0xff;
+                    mjpeg_frame[offset + 2] = *buffer++;
+                    mjpeg_frame[offset + 1] = *buffer++;
+                    mjpeg_frame[offset + 0] = *buffer++;
+                    offset += 4;
+                }
+            #elif LV_COLOR_DEPTH == 16
+                uint8_t pixelsize = 2;
+                uint32_t offset = y * decoder->width * pixelsize + rect->left * pixelsize;
+                for ( uint32_t i = 0; i < row_width; i++ ) {
+                    uint32_t col_16bit = (*buffer++ & 0xf8) << 8;
+                    col_16bit |= (*buffer++ & 0xFC) << 3;
+                    col_16bit |= (*buffer++ >> 3);
+                    #ifdef LV_BIG_ENDIAN_SYSTEM
+                        mjpeg_frame[offset++] = col_16bit >> 8;
+                        mjpeg_frame[offset++] = col_16bit & 0xff;
+                    #else
+                        mjpeg_frame[offset++] = col_16bit & 0xff;
+                        mjpeg_frame[offset++] = col_16bit >> 8;
+                    #endif
+                }
+            #elif LV_COLOR_DEPTH == 8
+                uint8_t pixelsize = 1;
+                uint32_t offset = y * decoder->width * pixelsize + rect->left * pixelsize;
+                for ( uint32_t i = 0; i < row_width; i++ ) {
+                    uint8_t col_8bit = (*buffer++ & 0xC0);
+                    col_8bit |= (*buffer++ & 0xe0) >> 2;
+                    col_8bit |= (*buffer++ & 0xe0) >> 5;
+                    mjpeg_frame[offset++] = col_8bit;
+                }
+            #else
+                #error Unsupported LV_COLOR_DEPTH
+            #endif
+        }
+
+        return 1;
+    }
+
+    void printer3d_mjpeg_task(void *parameter) {
+        HTTPClient mjpeg_client;
+        mjpeg_client.useHTTP10(true);
+        mjpeg_client.setConnectTimeout(1000);
+        mjpeg_client.setTimeout(3000);
+        mjpeg_client.begin(mjpeg_url);
+
+        int httpcode = mjpeg_client.GET();
+        if (httpcode < 200 || httpcode >= 400) {
+            log_w("3dprinter could not connect to video stream at %s", mjpeg_url);
+            
+            if (mjpeg_buffer != nullptr) {
+                free(mjpeg_buffer);
+                mjpeg_buffer = nullptr;
+            }
+            vTaskDelete(NULL);
+        } else {
+            log_i("3dprinter connected to video stream at %s", mjpeg_url);
+
+            // prepare stream
+            WiFiClient stream = mjpeg_client.getStream();
+            stream.setTimeout(5);
+
+            // give it about 3 seconds receive something
+            for (uint8_t i = 0; i < 30; i++) {
+                if (stream.available()) break;
+                delay(10);
+            }
+
+            // prepare frame buffer and decoder
+            JDEC* decoder = (JDEC*)MALLOC(sizeof(JDEC));
+            JRESULT result;
+
+            while (true) {
+                if (!printer3d_state || !printer3d_open_state) {
+                    log_i("3dprinter closing connection to video stream at %s", mjpeg_url);
+                    break;
+                }
+                if (!stream.connected()) {
+                    log_w("3dprinter lost connection to video stream at %s", mjpeg_url);
+                    break;
+                }
+
+                // wait for more frames
+                if (!stream.available()) {
+                    log_d("3dprinter waiting for more data in video stream at %s", mjpeg_url);
+                    delay(100);
+                    continue;
+                }
+
+                // decode frames and notify lvgl image
+                result = jd_prepare( decoder, printer3d_mjpeg_input, mjpeg_buffer, PRINTER3D_MJPEG_BUFFER_SIZE, &(stream) );
+                if (result == JDR_OK) {
+                    log_d("3dprinter successfully prepared a %dx%d video frame", decoder->width, decoder->height);
+
+                    // use decoded size to allocate memory
+                    bool first_frame = false;
+                    size_t mjpeg_size = decoder->width * decoder->height * LV_COLOR_DEPTH / 8;
+                    if (mjpeg_frame == nullptr) {
+                        mjpeg_frame = (uint8_t*)MALLOC(mjpeg_size);
+                        first_frame = true;
+                    }
+                    
+                    result = jd_decomp( decoder, printer3d_mjpeg_output, 0 );
+                    if (result == JDR_OK) {
+                        log_d("3dprinter successfully decoded a %dx%d video frame with %d bytes", decoder->width, decoder->height, mjpeg_size);
+
+                        printer3d_video.header.always_zero = 0;
+                        printer3d_video.header.cf = LV_IMG_CF_TRUE_COLOR;
+                        printer3d_video.header.w = decoder->width;
+                        printer3d_video.header.h = decoder->height;
+                        printer3d_video.data = mjpeg_frame;
+                        printer3d_video.data_size = mjpeg_size;
+
+                        if (first_frame) {
+                            bool landscape = decoder->width > decoder->height;
+                            uint8_t ratio = RES_Y_MAX * 100 / RES_X_MAX;
+                            uint16_t maxX = landscape ? (decoder->height * 100 / ratio) : decoder->width;
+                            uint16_t maxY = landscape ? decoder->height : (decoder->width * 100 / ratio);
+                            uint8_t zoomFactor = (landscape ? RES_Y_MAX : RES_X_MAX) * 100 / (landscape ? decoder->height : decoder->width);
+
+                            lv_obj_set_hidden( printer3d_video_img, true );
+                            lv_img_set_src( printer3d_video_img, &printer3d_video );
+                            lv_img_set_antialias( printer3d_video_img, false );
+                            lv_img_set_auto_size( printer3d_video_img, false );
+                            lv_obj_set_size( printer3d_video_img, decoder->width, decoder->height );
+                            lv_img_set_zoom( printer3d_video_img, LV_IMG_ZOOM_NONE * zoomFactor / 100 );
+                            lv_img_set_pivot( printer3d_video_img, 0, 0 );
+                            lv_img_set_offset_x( printer3d_video_img, landscape ? (maxX - decoder->width) / 2 : 0 );
+                            lv_img_set_offset_y( printer3d_video_img, landscape ? 0 : (maxY - decoder->height) / 2 );
+                            lv_obj_align( printer3d_video_img, printer3d_app_video_tile, LV_ALIGN_IN_TOP_LEFT, 0, 0 );
+                            lv_obj_set_hidden( printer3d_video_img, false );
+                        } else {
+                            lv_obj_invalidate( printer3d_video_img );
+                        }
+                    } else {
+                        log_d("3dprinter could not decode a video frame");
+                    }
+
+                    // give the µC some time to breath after each frame
+                    delay(10);
+                } else if (result == JDR_FMT1) {
+                    log_d("3dprinter needs to find the next video frame");
+
+                    // try to jump to the next end-of-image 0xFFD9 marker
+                    while (printer3d_state && printer3d_open_state && stream.connected()) {
+                        if (!stream.available()) {
+                            delay(1);
+                            continue;
+                        }
+                        if (stream.read() != 0xFF) continue;
+                        if (stream.read() != 0xD9) continue;
+                        log_d("3dprinter found the next video frame");
+                        break;
+                    }
+                }
+            }
+
+            if (mjpeg_frame != nullptr) {
+                free(mjpeg_frame);
+                mjpeg_frame = nullptr;
+            }
+
+            free(decoder);
+        }
+
+        if (mjpeg_buffer != nullptr) {
+            free(mjpeg_buffer);
+            mjpeg_buffer = nullptr;
+        }
+
+        mjpeg_client.end();
+        vTaskDelete(NULL);
+    }
+#endif
+
+void printer3d_mjpeg_init( void ) {
+    if (!printer3d_state) return;
+    if (!printer3d_open_state) return;
+
+    #ifdef NATIVE_64BIT
+        return;
+    #endif
+
+    printer3d_config_t *printer3d_config = printer3d_get_config();
+    if (mjpeg_buffer == nullptr && strlen(printer3d_config->camera) > 0) {
+        mjpeg_url = printer3d_config->camera;
+
+        mjpeg_buffer = (uint8_t*)malloc(PRINTER3D_MJPEG_BUFFER_SIZE);
+        xTaskCreatePinnedToCore(printer3d_mjpeg_task, "printer3d_mjpeg", 2500, NULL, 0, &printer3d_mjpeg_handle, 1);
+    }
 }
