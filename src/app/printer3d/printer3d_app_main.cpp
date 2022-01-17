@@ -56,7 +56,6 @@ static uint64_t nextmillis = 0;
 static uint8_t* mjpeg_buffer = nullptr;
 static uint8_t* mjpeg_frame = nullptr;
 static char* mjpeg_url;
-static uint16_t mjpeg_width = 0;
 
 lv_obj_t *printer3d_app_main_tile = NULL;
 lv_obj_t *printer3d_app_video_tile = NULL;
@@ -216,7 +215,7 @@ void printer3d_app_main_setup( uint32_t tile_num ) {
     #endif
 
     // callbacks
-    powermgm_register_cb( POWERMGM_STANDBY, printer3d_powermgm_event_cb, "printer3d powermgm");
+    powermgm_register_cb( POWERMGM_STANDBY | POWERMGM_STANDBY_REQUEST, printer3d_powermgm_event_cb, "printer3d powermgm");
     wifictl_register_cb( WIFICTL_OFF | WIFICTL_CONNECT_IP | WIFICTL_DISCONNECT, printer3d_main_wifictl_event_cb, "printer3d main" );
 
     // create an task that runs every second
@@ -237,6 +236,9 @@ static bool printer3d_powermgm_event_cb(EventBits_t event, void *arg)
 {
     switch( event ) {
         case( POWERMGM_STANDBY ):
+            printer3d_open_state = false;
+            break;
+        case( POWERMGM_STANDBY_REQUEST ):
             printer3d_open_state = false;
             break;
     }
@@ -280,9 +282,9 @@ void printer3d_app_task( lv_task_t * task ) {
 
     if ( nextmillis < millis() ) {
         if (printer3d_open_state) {
-            nextmillis = millis() + 15000L;
+            nextmillis = millis() + 30000L;
         } else {
-            nextmillis = millis() + 60000L;
+            nextmillis = millis() + 120000L;
         }
 
         if (printer3d_refresh_result.machineType == nullptr) printer3d_refresh_result.machineType = (volatile char*)CALLOC(32, sizeof(char));
@@ -553,14 +555,52 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
 
     static int32_t printer3d_mjpeg_output(JDEC* decoder, void* data, JRECT* rect) {
         uint8_t* buffer = (uint8_t*)data;
-        const int row_width = rect->right - rect->left + 1; // Row width in pixels.
-        const int row_size = row_width * PRINTER3D_MJPEG_PIXEL_SIZE;  // Row size (bytes).
+        const uint16_t row_width = rect->right - rect->left + 1;
 
-        // write partial decoded image into buffer
-        for( int y = rect->top; y <= rect->bottom; y++ ) {
-            int row_offset = y * mjpeg_width * PRINTER3D_MJPEG_PIXEL_SIZE + rect->left * PRINTER3D_MJPEG_PIXEL_SIZE;
-            if (mjpeg_frame) memcpy( mjpeg_frame + row_offset, buffer, row_size );
-            buffer += row_size;
+        // write partial decoded image into frame buffer
+        for ( uint16_t y = rect->top; y <= rect->bottom; y++ ) {
+            if (!printer3d_state || !printer3d_open_state) break;
+            if (!decoder->width || !decoder->height) break;
+            if (!mjpeg_frame) break;
+
+            // convert raw output into the corresponding color depth pixels
+            #if LV_COLOR_DEPTH == 32
+                uint8_t pixelsize = 4;
+                uint32_t offset = y * decoder->width * pixelsize + rect->left * pixelsize;
+                for ( uint32_t i = 0; i < row_width; i++ ) {
+                    mjpeg_frame[offset + 3] = 0xff;
+                    mjpeg_frame[offset + 2] = *buffer++;
+                    mjpeg_frame[offset + 1] = *buffer++;
+                    mjpeg_frame[offset + 0] = *buffer++;
+                    offset += 4;
+                }
+            #elif LV_COLOR_DEPTH == 16
+                uint8_t pixelsize = 2;
+                uint32_t offset = y * decoder->width * pixelsize + rect->left * pixelsize;
+                for ( uint32_t i = 0; i < row_width; i++ ) {
+                    uint32_t col_16bit = (*buffer++ & 0xf8) << 8;
+                    col_16bit |= (*buffer++ & 0xFC) << 3;
+                    col_16bit |= (*buffer++ >> 3);
+                    #ifdef LV_BIG_ENDIAN_SYSTEM
+                        mjpeg_frame[offset++] = col_16bit >> 8;
+                        mjpeg_frame[offset++] = col_16bit & 0xff;
+                    #else
+                        mjpeg_frame[offset++] = col_16bit & 0xff;
+                        mjpeg_frame[offset++] = col_16bit >> 8;
+                    #endif
+                }
+            #elif LV_COLOR_DEPTH == 8
+                uint8_t pixelsize = 1;
+                uint32_t offset = y * decoder->width * pixelsize + rect->left * pixelsize;
+                for ( uint32_t i = 0; i < row_width; i++ ) {
+                    uint8_t col_8bit = (*buffer++ & 0xC0);
+                    col_8bit |= (*buffer++ & 0xe0) >> 2;
+                    col_8bit |= (*buffer++ & 0xe0) >> 5;
+                    mjpeg_frame[offset++] = col_8bit;
+                }
+            #else
+                #error Unsupported LV_COLOR_DEPTH
+            #endif
         }
 
         return 1;
@@ -600,8 +640,7 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
             JRESULT result;
 
             while (true) {
-                if (!printer3d_state) break;
-                if (!printer3d_open_state) {
+                if (!printer3d_state || !printer3d_open_state) {
                     log_i("3dprinter closing connection to video stream at %s", mjpeg_url);
                     break;
                 }
@@ -624,10 +663,9 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
 
                     // use decoded size to allocate memory
                     bool first_frame = false;
-                    size_t mjpeg_size = decoder->width * decoder->height * PRINTER3D_MJPEG_PIXEL_SIZE;
+                    size_t mjpeg_size = decoder->width * decoder->height * LV_COLOR_DEPTH / 8;
                     if (mjpeg_frame == nullptr) {
                         mjpeg_frame = (uint8_t*)MALLOC(mjpeg_size);
-                        mjpeg_width = decoder->width;
                         first_frame = true;
                     }
                     
@@ -644,18 +682,20 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
 
                         if (first_frame) {
                             bool landscape = decoder->width > decoder->height;
-                            uint16_t maxSize = landscape ? (RES_Y_MAX * decoder->width / decoder->height) : (RES_X_MAX * decoder->height / decoder->width);
-                            uint16_t zoomFactor = maxSize * 100 / (landscape ? decoder->width : decoder->height);
+                            uint8_t ratio = RES_Y_MAX * 100 / RES_X_MAX;
+                            uint16_t maxX = landscape ? (decoder->height * 100 / ratio) : decoder->width;
+                            uint16_t maxY = landscape ? decoder->height : (decoder->width * 100 / ratio);
+                            uint8_t zoomFactor = (landscape ? RES_Y_MAX : RES_X_MAX) * 100 / (landscape ? decoder->height : decoder->width);
 
                             lv_obj_set_hidden( printer3d_video_img, true );
                             lv_img_set_src( printer3d_video_img, &printer3d_video );
                             lv_img_set_antialias( printer3d_video_img, false );
                             lv_img_set_auto_size( printer3d_video_img, false );
+                            lv_obj_set_size( printer3d_video_img, decoder->width, decoder->height );
                             lv_img_set_zoom( printer3d_video_img, LV_IMG_ZOOM_NONE * zoomFactor / 100 );
-                            lv_img_set_offset_x( printer3d_video_img, landscape ? 0 - (maxSize / 2) : 0 );
-                            lv_img_set_offset_y( printer3d_video_img, landscape ? 0 : 0 - (maxSize / 2) );
                             lv_img_set_pivot( printer3d_video_img, 0, 0 );
-                            lv_obj_set_size( printer3d_video_img, RES_X_MAX, RES_Y_MAX );
+                            lv_img_set_offset_x( printer3d_video_img, landscape ? (maxX - decoder->width) / 2 : 0 );
+                            lv_img_set_offset_y( printer3d_video_img, landscape ? 0 : (maxY - decoder->height) / 2 );
                             lv_obj_align( printer3d_video_img, printer3d_app_video_tile, LV_ALIGN_IN_TOP_LEFT, 0, 0 );
                             lv_obj_set_hidden( printer3d_video_img, false );
                         } else {
@@ -666,14 +706,14 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
                     }
 
                     // give the µC some time to breath after each frame
-                    delay(25);
+                    delay(10);
                 } else if (result == JDR_FMT1) {
                     log_d("3dprinter needs to find the next video frame");
 
                     // try to jump to the next end-of-image 0xFFD9 marker
-                    while (stream.connected()) {
+                    while (printer3d_state && printer3d_open_state && stream.connected()) {
                         if (!stream.available()) {
-                            delay(10);
+                            delay(1);
                             continue;
                         }
                         if (stream.read() != 0xFF) continue;
