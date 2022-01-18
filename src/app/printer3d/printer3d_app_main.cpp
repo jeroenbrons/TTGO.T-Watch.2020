@@ -639,6 +639,7 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
             JDEC* decoder = (JDEC*)MALLOC(sizeof(JDEC));
             JRESULT result;
 
+            uint8_t failcount = 0;
             while (true) {
                 if (!printer3d_state || !printer3d_open_state) {
                     log_i("3dprinter closing connection to video stream at %s", mjpeg_url);
@@ -706,20 +707,32 @@ void printer3d_send(WiFiClient client, char* buffer, const char* command) {
                     }
 
                     // give the µC some time to breath after each frame
+                    failcount = 0;
                     delay(10);
-                } else if (result == JDR_FMT1) {
-                    log_d("3dprinter needs to find the next video frame");
+                } else if (result == JDR_FMT1 || result == JDR_FMT2 || result == JDR_FMT3) {
+                    // close connection after multiple wrong frames
+                    if (result == JDR_FMT2 || result == JDR_FMT3) {
+                        log_w("3dprinter received not supported format or JPEG from %s", mjpeg_url);
+                        if (failcount++ >= 3) break;
+                    } else log_d("3dprinter needs to find the next video frame");
 
                     // try to jump to the next end-of-image 0xFFD9 marker
-                    while (printer3d_state && printer3d_open_state && stream.connected()) {
-                        if (!stream.available()) {
+                    bool found = false;
+                    while ( !found && printer3d_state && printer3d_open_state && stream.connected() ) {
+                        uint16_t available = stream.available();
+                        if (!available) {
                             delay(1);
                             continue;
                         }
-                        if (stream.read() != 0xFF) continue;
-                        if (stream.read() != 0xD9) continue;
-                        log_d("3dprinter found the next video frame");
-                        break;
+
+                        for ( uint16_t i = 0; i < available; i++ ) {
+                            if (stream.read() != 0xFF) continue;
+                            if (stream.read() != 0xD9) continue;
+
+                            log_d("3dprinter found the next video frame");
+                            found = true;
+                            break;
+                        }
                     }
                 }
             }
