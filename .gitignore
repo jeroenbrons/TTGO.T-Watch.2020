@@ -7,5 +7,6 @@ firmware_fork_list.json
 src/my-ttgo-watch.ino.cpp
 conf/wificfg.json
 conf/weather.json
+conf/blectl.json
 data/wificfg.json
 data/weather.json
