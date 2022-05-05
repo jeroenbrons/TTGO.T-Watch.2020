@@ -20,6 +20,7 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+#define USER_SETUP_LOADED
 #ifndef _CONFIG_H
 
     #include "lvgl.h"
@@ -62,9 +63,6 @@
             #define RES_Y_MAX       240
             #define ONLY_ESSENTIAL
             #define ROUND_DISPLAY
-            #define NO_BLUETOOTH
-            #define NO_WATCHFACE
-            #define NO_UPDATES
         #elif defined( M5PAPER )
             #define HARDWARE_NAME   "m5stack-fire"
             #define RES_X_MAX       540
@@ -72,8 +70,6 @@
             #define ENABLE_WEBSERVER                        /** @brief To disable built-in webserver, comment this line */
             #define ENABLE_FTPSERVER                        /** @brief To disable built-in ftpserver, comment this line */
             #define ENABLE_MQTT                             /** @brief To disable built-in mqtt, comment this line */
-            #define NO_WATCHFACE
-            #define NO_BLUETOOTH
         #elif defined( M5CORE2 )
             #define HARDWARE_NAME   "m5stack-core2"
             #define RES_X_MAX       320
@@ -81,7 +77,6 @@
             #define ENABLE_WEBSERVER                        /** @brief To disable built-in webserver, comment this line */
             #define ENABLE_FTPSERVER                        /** @brief To disable built-in ftpserver, comment this line */
             #define ENABLE_MQTT                             /** @brief To disable built-in mqtt, comment this line */
-            #define NO_BLUETOOTH
         #else
             #error "no destination hardware version defined"
         #endif
@@ -93,7 +88,7 @@
     /**
      * firmeware version string
      */
-    #define __FIRMWARE__            "2021121701"
+    #define __FIRMWARE__            "2021092801"
     /**
      * Allows to include config.h from C code
      */
